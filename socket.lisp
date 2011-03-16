@@ -40,10 +40,20 @@
 ;; NOTE: multi-thread version
 ;; TODO: single-thread版も試したい
 (defmacro do-accept ((client server) &body body)
-  `(loop
-    (let ((,client (sb-bsd-sockets:socket-accept ,server)))
-      (sb-thread:make-thread
-       (lambda ()
-         (unwind-protect
-             (locally ,@body)
-           (sb-bsd-sockets:socket-close ,client)))))))
+  (let ((threads (gensym)))
+    `(let ((,threads '()))
+       (unwind-protect
+           (loop FOR ,client = (sb-bsd-sockets:socket-accept ,server)
+             DO
+             (push
+              (sb-thread:make-thread
+               (lambda ()
+                 (unwind-protect
+                     (locally ,@body)
+                   (sb-bsd-sockets:socket-close ,client))))
+              ,threads)
+             ;; XXX:
+             (setf ,threads (delete-if-not #'sb-thread:thread-alive-p ,threads)))
+         (loop FOR thread IN ,threads
+               WHEN (sb-thread:thread-alive-p thread)
+               DO (sb-thread:terminate-thread thread))))))

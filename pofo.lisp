@@ -1,6 +1,5 @@
 (in-package :pofo)
 
-;; TODO: make-two-way-stream を試してみても良いかも
 (defun forward (in out)
   (while (listen in)
     (write-byte (read-byte in) out))
@@ -52,4 +51,3 @@
     (if thread
         (sb-thread:make-thread (lambda () (main)))
       (main))))
-
