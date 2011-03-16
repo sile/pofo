@@ -37,6 +37,7 @@
          (locally ,@body)
        (close ,stream))))
 
+;; NOTE: thread version
 (defmacro do-accept ((client server) &body body)
   `(loop
     (let ((,client (sb-bsd-sockets:socket-accept ,server)))

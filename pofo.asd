@@ -8,5 +8,6 @@
   :serial t
   :depends-on (:sb-bsd-sockets)
   :components ((:file "package")
+               (:file "util")
                (:file "socket")
                (:file "pofo")))
