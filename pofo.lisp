@@ -35,6 +35,7 @@
          (sb-sys:serve-all-events)
          (sleep 0.01)))))
 
+;; TODO: socketが切断された場合のハンドリング追加
 (defun start-forward (&key from-host from-port to-host to-port thread)
   (declare (address-spec from-host to-host)
            (positive-fixnum from-port to-port))
