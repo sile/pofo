@@ -1,6 +1,6 @@
 (defpackage pofo
   (:use :common-lisp)
-  (:export start-forward))
+  (:export forward))
 (in-package :pofo)
 
 (deftype octet () '(unsigned-byte 3))
