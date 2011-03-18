@@ -37,23 +37,145 @@
          (locally ,@body)
        (close ,stream))))
 
-;; NOTE: multi-thread version
-;; TODO: single-thread版も試したい
+(defun make-client-socket (host port)
+  (let ((client (make-instance 'sb-bsd-sockets:inet-socket :type :stream :protocol :tcp)))
+    (sb-bsd-sockets:socket-connect client (resolve-address host) port)
+    client))
+                
+(defun make-socket-stream (socket)
+  (sb-bsd-sockets:socket-make-stream socket 
+                                     :input t :output t
+                                     :serve-events t
+                                     :element-type 'octet))
+
 (defmacro do-accept ((client server) &body body)
-  (let ((threads (gensym)))
-    `(let ((,threads '()))
+  (let ((worker-thread (gensym))
+        (queue (gensym)))
+    `(let* ((,queue (sb-concurrency:make-queue))
+            (,worker-thread
+             (sb-thread:make-thread
+              (lambda () 
+                (loop FOR ,client = (sb-concurrency:dequeue ,queue)
+                      DO (when ,client
+                           (print (list :client ,client) *error-output*)
+                           (locally ,@body))
+                      (sb-sys:serve-all-events 0.1)
+                      )))))
        (unwind-protect
            (loop FOR ,client = (sb-bsd-sockets:socket-accept ,server)
-             DO
-             (push
-              (sb-thread:make-thread
-               (lambda ()
-                 (unwind-protect
-                     (locally ,@body)
-                   (sb-bsd-sockets:socket-close ,client))))
-              ,threads)
-             ;; XXX:
-             (setf ,threads (delete-if-not #'sb-thread:thread-alive-p ,threads)))
-         (loop FOR thread IN ,threads
-               WHEN (sb-thread:thread-alive-p thread)
-               DO (sb-thread:terminate-thread thread))))))
+                 DO
+                 (sb-concurrency:enqueue ,client ,queue))
+         (progn
+           (when (sb-thread:thread-alive-p ,worker-thread)
+             (sb-thread:terminate-thread ,worker-thread))
+           (dolist (,client (sb-concurrency:list-queue-contents ,queue))
+             (sb-bsd-sockets:socket-close ,client)))))))
+
+(defstruct info
+  client
+  client-stream
+  server
+  server-stream
+  client-handler
+  server-handler)
+
+(defun close-info (info)
+  (with-slots (client server client-handler server-handler) info
+    (sb-bsd-sockets:socket-close client)
+    (sb-bsd-sockets:socket-close server)
+    (sb-sys:remove-fd-handler client-handler)
+    (sb-sys:remove-fd-handler server-handler)
+    ))
+
+(defmacro register (stream handler &body body)
+  (let ((fd (gensym)))
+    `(setf ,handler
+           (sb-sys:add-fd-handler
+            (sb-sys:fd-stream-fd ,stream)
+            :input
+            (lambda (,fd)
+              (declare (ignorable ,fd))
+              (print (list :fd ,fd) *error-output*)
+              ,@body)))))
+
+(defun stream-forward (in out)
+  (while (listen in)
+    (write-byte (read-byte in) out))
+  (force-output out))
+
+(defmacro forward-loop ((type from to) &body body)
+  `(let* ((h-from)
+          (h-to)
+          (close-all (lambda () ;; TODO: queue等で管理(thread移動終了時に停止)
+                       (sb-sys:remove-fd-handler h-from)
+                       (sb-sys:remove-fd-handler h-to)
+                       (close ,from)
+                       (close ,to))))
+     (print :reg1 *error-output*)
+     (register ,from h-from (handler-case 
+                              (let ((,type :forward))
+                                (if (not (listen ,from))
+                                    (funcall close-all)
+                                  (locally ,@body)))
+                              (error (c)
+                                (format *error-output* "DEBUG:~A~%" c)
+                                (funcall close-all))))
+     (print (list :reg2 h-from) *error-output*)
+     (register ,to   h-to   (handler-case 
+                              (let ((,type :backward)) 
+                                (if (not (listen ,to))
+                                    (funcall close-all)
+                                  (locally ,@body)))
+                              (error (c)
+                                (format *error-output* "DEBUG:~A~%" c)
+                                (funcall close-all))))
+     (print (list :reg-finish h-to) *error-output*)
+     (force-output *error-output*)
+     ))
+  
+(defun test2 ()
+  (with-server (proxy "localhost" 8008)
+    (do-accept (client proxy)
+      (print :enter *error-output*)
+      (let* ((server (make-client-socket "localhost" 5432))
+             (cstm (make-socket-stream client))
+             (sstm (make-socket-stream server)))
+        (print :init *error-output*)
+        (forward-loop (type cstm sstm)
+          (case type
+            (:forward  (stream-forward cstm sstm))
+            (:backward (stream-forward sstm cstm))))))))
+        
+#|
+(defun test (&aux (map (make-hash-table)))
+  (with-server (proxy "localhost" 8008)
+    (do-accept (client proxy)
+      (let* ((server (make-client-socket "localhost" 5432))
+             (cstm (make-socket-stream client))
+             (sstm (make-socket-stream server))
+             (chand (register cstm
+                      (print (list :client (read-byte cstm)))))
+             (shand (register sstm
+                      (print (list :server (read-byte sstm)))))
+             (info (make-info :client client
+                              :client-stream cstm
+                              :client-handler chand
+                              :server server
+                              :server-stream sstm
+                              :server-handler shand)))
+        (setf (gethash (sb-sys:fd-stream-fd cstm) map) info
+              (gethash (sb-sys:fd-stream-fd sstm) map) info)
+        
+        (print info)
+        
+        (handler-case
+         (sb-sys:serve-all-events 1)
+         (error (C)
+           (print (list :condition C))
+           (with-slots (stream) c
+             (let* ((fd (sb-sys:fd-stream-fd stream))
+                    (info (gethash fd map)))
+               (close-info info)))))
+        ))))
+
+|#

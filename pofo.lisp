@@ -1,5 +1,6 @@
 (in-package :pofo)
 
+#|
 (defun stream-forward (in out)
   (while (listen in)
     (write-byte (read-byte in) out))
@@ -53,3 +54,4 @@
       (if thread
           (sb-thread:make-thread (lambda () (main)))
         (main)))))
+|#
