@@ -103,32 +103,32 @@
     (write-byte (read-byte in) out))
   (force-output out))
 
-(defmacro forward-loop ((type from to) &body body)
+(defmacro forward-loop ((from to) &key forward backward)
   `(let* ((h-from)
           (h-to)
           (close-all (lambda () ;; TODO: queue等で管理(thread移動終了時に停止)
+                       (print (list :close ,from ,to) *error-output*)
+                       (force-output *error-output*)
                        (sb-sys:remove-fd-handler h-from)
                        (sb-sys:remove-fd-handler h-to)
                        (close ,from)
                        (close ,to))))
      (print :reg1 *error-output*)
      (register ,from h-from (handler-case 
-                              (let ((,type :forward))
-                                (if (not (listen ,from))
-                                    (funcall close-all)
-                                  (locally ,@body)))
-                              (error (c)
-                                (format *error-output* "DEBUG:~A~%" c)
-                                (funcall close-all))))
+                             (if (not (listen ,from))
+                                 (funcall close-all)
+                               ,forward)
+                             (error (c)
+                               (format *error-output* "DEBUG:~A~%" c)
+                               (funcall close-all))))
      (print (list :reg2 h-from) *error-output*)
      (register ,to   h-to   (handler-case 
-                              (let ((,type :backward)) 
-                                (if (not (listen ,to))
-                                    (funcall close-all)
-                                  (locally ,@body)))
-                              (error (c)
-                                (format *error-output* "DEBUG:~A~%" c)
-                                (funcall close-all))))
+                             (if (not (listen ,to))
+                                 (funcall close-all)
+                               ,backward)
+                             (error (c)
+                               (format *error-output* "DEBUG:~A~%" c)
+                               (funcall close-all))))
      (print (list :reg-finish h-to) *error-output*)
      (force-output *error-output*)
      ))
@@ -137,45 +137,14 @@
   (with-server (proxy "localhost" 8008)
     (do-accept (client proxy)
       (print :enter *error-output*)
-      (let* ((server (make-client-socket "localhost" 5432))
-             (cstm (make-socket-stream client))
-             (sstm (make-socket-stream server)))
-        (print :init *error-output*)
-        (forward-loop (type cstm sstm)
-          (case type
-            (:forward  (stream-forward cstm sstm))
-            (:backward (stream-forward sstm cstm))))))))
-        
-#|
-(defun test (&aux (map (make-hash-table)))
-  (with-server (proxy "localhost" 8008)
-    (do-accept (client proxy)
-      (let* ((server (make-client-socket "localhost" 5432))
-             (cstm (make-socket-stream client))
-             (sstm (make-socket-stream server))
-             (chand (register cstm
-                      (print (list :client (read-byte cstm)))))
-             (shand (register sstm
-                      (print (list :server (read-byte sstm)))))
-             (info (make-info :client client
-                              :client-stream cstm
-                              :client-handler chand
-                              :server server
-                              :server-stream sstm
-                              :server-handler shand)))
-        (setf (gethash (sb-sys:fd-stream-fd cstm) map) info
-              (gethash (sb-sys:fd-stream-fd sstm) map) info)
-        
-        (print info)
-        
-        (handler-case
-         (sb-sys:serve-all-events 1)
-         (error (C)
-           (print (list :condition C))
-           (with-slots (stream) c
-             (let* ((fd (sb-sys:fd-stream-fd stream))
-                    (info (gethash fd map)))
-               (close-info info)))))
-        ))))
-
-|#
+      (handler-case 
+       (let* ((server (make-client-socket "localhost" 5432))
+              (cstm (make-socket-stream client))
+              (sstm (make-socket-stream server)))
+         (print :init *error-output*)
+         (forward-loop (cstm sstm)
+           :forward  (stream-forward cstm sstm)
+           :backward (stream-forward sstm cstm)))
+       (error (C)
+         (print (list :retne c) *error-output*)
+         (sb-bsd-sockets:socket-close client))))))
