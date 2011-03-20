@@ -70,8 +70,8 @@
               (declare (ignorable ,fd))
               ,@body)))))
 
-(declaim (inline wait-for-input))
-(defun wait-for-input (from-stream to-stream &key on-forward on-backward)
+(declaim (inline handle-input-event))
+(defun handle-input-event (from-stream to-stream &key on-forward on-backward)
   (let ((from-handler)
         (to-handler))
     (labels ((clean-up ()
@@ -109,7 +109,7 @@
                       (from-stream (make-socket-stream from))
                       (to-stream   (make-socket-stream to)))
                  (declare #.*fastest*)
-                 (wait-for-input from-stream to-stream
+                 (handle-input-event from-stream to-stream
                    :on-forward  (lambda () (stream-forward from-stream to-stream))
                    :on-backward (lambda () (stream-forward to-stream from-stream))))))))
     (if (not thread)
