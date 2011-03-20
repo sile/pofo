@@ -39,7 +39,7 @@
                        (loop FOR client = (sb-concurrency:dequeue accepted-socket-queue)
                              DO (when client
                                   (funcall body-fn client))
-                             (sb-sys:serve-all-events 0.005))
+                                (sb-sys:serve-all-events 0.005))
                      (loop FOR clean-up-function BEING THE HASH-VALUES OF *registered*
                            DO (funcall clean-up-function))))))))
     (unwind-protect
