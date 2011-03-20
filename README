@@ -1,0 +1,38 @@
+[名前]
+- pofo
+
+
+[バージョン]
+- 0.0.2
+
+
+[概要]
+- Common Lisp
+　- SBCL依存
+- 簡易的なポートフォワーディングの実装
+
+
+[インストール方法]
+$ wget https://github.com/downloads/sile/pofo/pofo-0.1.3.tar.gz
+$ sbcl
+> (require :asdf)
+> (require :asdf-install)
+> (asdf-install:install "pofo-0.0.2.tar.gz")
+
+
+[API]
+Package# pofo
+  メインパッケージ
+
+Function# pofo:forward (from-host from-port to-host to-port &key thread (workers 1)) 
+  ポートフォワーディングを行う関数
+  = from-host: フォワードサーバが使用するホスト指定。文字列 or IPアドレス指定配列(ex. #(127 0 0 1))。
+  = from-port: フォワードサーバが使用するポート指定。正の整数値。
+  = to-host: フォワード先ホスト。文字列 or IPアドレス指定配列(ex. #(127 0 0 1))。
+  = to-port: フォワード先ポート。正の整数値。
+  = thread: フォワードサーバを別スレッドとして起動するかどうか
+  = workers: ワーカースレッドの数。正の整数値
+
+
+[TODO]
+・ログ出力のための仕組みを導入

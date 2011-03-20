@@ -71,7 +71,7 @@
               ,@body)))))
 
 (declaim (inline wait-for-input))
-(defun wait-for-input (from-stream to-stream &key forward backward)
+(defun wait-for-input (from-stream to-stream &key on-forward on-backward)
   (let ((from-handler)
         (to-handler))
     (labels ((clean-up ()
@@ -89,8 +89,8 @@
                     (clean-up))))
                t))
       (setf (gethash #'clean-up *registered*) #'clean-up)
-      (register from-stream from-handler (funcall-with-clean-up forward from-stream))
-      (register   to-stream   to-handler (funcall-with-clean-up backward to-stream)))))
+      (register from-stream from-handler (funcall-with-clean-up on-forward from-stream))
+      (register   to-stream   to-handler (funcall-with-clean-up on-backward to-stream)))))
 
 (declaim (inline stream-forward))
 (defun stream-forward (in out)
@@ -110,8 +110,8 @@
                       (to-stream   (make-socket-stream to)))
                  (declare #.*fastest*)
                  (wait-for-input from-stream to-stream
-                   :forward  (lambda () (stream-forward from-stream to-stream))
-                   :backward (lambda () (stream-forward to-stream from-stream))))))))
+                   :on-forward  (lambda () (stream-forward from-stream to-stream))
+                   :on-backward (lambda () (stream-forward to-stream from-stream))))))))
     (if (not thread)
         (main)
       (sb-thread:make-thread #'main))))
