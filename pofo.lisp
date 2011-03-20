@@ -1,8 +1,7 @@
 (in-package :pofo)
 
-
 (defun resolve-address (hostname-or-ipaddress &aux (host hostname-or-ipaddress))
-  (declare (address-spec host))
+  (declare (host-spec host))
   (if (stringp host)
       (first (sb-bsd-sockets:host-ent-addresses 
               (sb-bsd-sockets:get-host-by-name host)))
@@ -28,35 +27,38 @@
                                      :serve-events t
                                      :element-type 'octet))
 
-(defvar *registered*)
 (declaim (inline do-accept-impl))
-(defun do-accept-impl (server body-fn)
+(defun do-accept-impl (server worker-number body-fn)
   (let* ((accepted-socket-queue (sb-concurrency:make-queue))
-         (worker-thread
-          (sb-thread:make-thread
-           (lambda (&aux (*registered* (make-hash-table :test #'eq) ))
-             (unwind-protect
-                 (loop FOR client = (sb-concurrency:dequeue accepted-socket-queue)
-                       DO (when client
-                            (funcall body-fn client))
-                          (sb-sys:serve-all-events 0.01))
-               (loop FOR clean-up-function BEING THE HASH-VALUES OF *registered*
-                     DO (funcall clean-up-function)))))))
+         (worker-threads
+          (loop REPEAT worker-number
+                COLLECT
+                (sb-thread:make-thread
+                 (lambda (&aux (*registered* (make-hash-table :test #'eq) ))
+                   (unwind-protect
+                       (loop FOR client = (sb-concurrency:dequeue accepted-socket-queue)
+                             DO (when client
+                                  (funcall body-fn client))
+                             (sb-sys:serve-all-events 0.005))
+                     (loop FOR clean-up-function BEING THE HASH-VALUES OF *registered*
+                           DO (funcall clean-up-function))))))))
     (unwind-protect
         (loop FOR client = (sb-bsd-sockets:socket-accept server)
               DO (sb-concurrency:enqueue client accepted-socket-queue))
       (progn
-        (when (sb-thread:thread-alive-p worker-thread)
-          (sb-thread:terminate-thread worker-thread))
+        (dolist (worker worker-threads)
+          (when (sb-thread:thread-alive-p worker)
+            (sb-thread:terminate-thread worker)))
         (dolist (client (sb-concurrency:list-queue-contents accepted-socket-queue))
           (sb-bsd-sockets:socket-close client))))))
 
-(defmacro do-accept ((client server) &body body)
-  `(do-accept-impl ,server (lambda (,client) 
-                             (handler-case 
-                                (locally ,@body)
-                               (error ()
-                                 (sb-bsd-sockets:socket-close ,client))))))
+(defmacro do-accept ((client server &key worker-number) &body body)
+  `(do-accept-impl ,server ,worker-number
+                   (lambda (,client) 
+                     (handler-case 
+                      (locally ,@body)
+                      (error ()
+                        (sb-bsd-sockets:socket-close ,client))))))
 
 (defmacro register (stream handler &body body)
   (let ((fd (gensym)))
@@ -68,6 +70,7 @@
               (declare (ignorable ,fd))
               ,@body)))))
 
+(declaim (inline wait-for-input))
 (defun wait-for-input (from-stream to-stream &key forward backward)
   (let ((from-handler)
         (to-handler))
@@ -83,25 +86,29 @@
                  (handler-case 
                   (funcall fn)
                   (error ()
-                    (clean-up))))))
+                    (clean-up))))
+               t))
       (setf (gethash #'clean-up *registered*) #'clean-up)
       (register from-stream from-handler (funcall-with-clean-up forward from-stream))
       (register   to-stream   to-handler (funcall-with-clean-up backward to-stream)))))
 
+(declaim (inline stream-forward))
 (defun stream-forward (in out)
   (loop WHILE  (listen in)
         DO (write-byte (read-byte in) out))
   (force-output out))
 
-(defun forward (from-host from-port to-host to-port &key thread)
+(defun forward (from-host from-port to-host to-port &key thread (workers 1))
   (declare (host-spec from-host to-host)
-           (positive-fixnum from-port to-port))
+           (positive-fixnum from-port to-port)
+           (positive-fixnum workers))
   (flet ((main ()
            (with-server (proxy from-host from-port)
-             (do-accept (from proxy)
+             (do-accept (from proxy :worker-number workers)
                (let* ((to (make-client-socket to-host to-port))
                       (from-stream (make-socket-stream from))
                       (to-stream   (make-socket-stream to)))
+                 (declare #.*fastest*)
                  (wait-for-input from-stream to-stream
                    :forward  (lambda () (stream-forward from-stream to-stream))
                    :backward (lambda () (stream-forward to-stream from-stream))))))))

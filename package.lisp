@@ -4,8 +4,7 @@
 (in-package :pofo)
 
 (deftype octet () '(unsigned-byte 3))
-(deftype address-spec () '(or (vector t 4) string)) ;; XXX:
 (deftype host-spec () '(or (vector t 4) string))
-(deftype positive-fixnum () '(integer 0 #.most-positive-fixnum))
+(deftype positive-fixnum () '(integer 1 #.most-positive-fixnum))
 (defvar *fastest* '(optimize (speed 3) (safety 0) (debug 0)))
-
+(defvar *registered*)
