@@ -34,7 +34,7 @@
           (loop REPEAT worker-number
                 COLLECT
                 (sb-thread:make-thread
-                 (lambda (&aux (*registered* (make-hash-table :test #'eq) ))
+                 (lambda (&aux (*registered* (make-hash-table :test #'eq)))
                    (unwind-protect
                        (loop FOR client = (sb-concurrency:dequeue accepted-socket-queue)
                              DO (when client
@@ -81,13 +81,12 @@
                (close from-stream)
                (close to-stream))
              (funcall-with-clean-up (fn stream)
-               (if (not (listen stream))
-                   (clean-up)
-                 (handler-case 
-                  (funcall fn)
-                  (error ()
-                    (clean-up))))
-               t))
+               (handler-case 
+                (if (not (listen stream))
+                    (clean-up)
+                  (progn (funcall fn) t))
+                (error ()
+                  (clean-up)))))
       (setf (gethash #'clean-up *registered*) #'clean-up)
       (register from-stream from-handler (funcall-with-clean-up on-forward from-stream))
       (register   to-stream   to-handler (funcall-with-clean-up on-backward to-stream)))))
