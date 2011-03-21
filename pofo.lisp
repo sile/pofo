@@ -99,7 +99,7 @@
 
 (defun forward (from-host from-port to-host to-port &key thread (workers 1))
   (declare (host-spec from-host to-host)
-           (positive-fixnum from-port to-port)
+           (port-number from-port to-port)
            (positive-fixnum workers))
   (flet ((main ()
            (with-server (proxy from-host from-port)
