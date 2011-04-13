@@ -1,5 +1,18 @@
 (in-package :pofo)
 
+(defun now ()
+  (multiple-value-bind (sec min hour day mon year)
+                       (get-decoded-time)
+    (format nil "~4,'0d/~2,'0d/~2,'0d-~2,'0d:~2,'0d:~2,'0d"
+            year mon day hour min sec)))
+
+(defun log-print (fmt &rest args)
+  (format *error-output* "~&;[~A] ~?~%" (now) fmt args))
+
+(defun peer (socket)
+  (multiple-value-bind (ip port) (sb-bsd-sockets:socket-peername socket)
+    (format nil "~d.~d.~d.~d:~d" (aref ip 0) (aref ip 1) (aref ip 2) (aref ip 3) port)))
+  
 (defun resolve-address (hostname-or-ipaddress &aux (host hostname-or-ipaddress))
   (declare (host-spec host))
   (if (stringp host)
@@ -103,14 +116,20 @@
            (positive-fixnum workers))
   (flet ((main ()
            (with-server (proxy from-host from-port)
+             (log-print "START#### ~a:~a => ~a:~a" from-host from-port to-host to-port)
              (do-accept (from proxy :worker-number workers)
+               (log-print "ACCEPT### ~a" (peer from))
                (let* ((to (make-client-socket to-host to-port))
                       (from-stream (make-socket-stream from))
                       (to-stream   (make-socket-stream to)))
                  (declare #.*fastest*)
                  (handle-input-event from-stream to-stream
-                   :on-forward  (lambda () (stream-forward from-stream to-stream))
-                   :on-backward (lambda () (stream-forward to-stream from-stream))))))))
+                   :on-forward  (lambda () 
+                                  (log-print "FORWARD## ~a => ~a" (peer from) (peer to))
+                                  (stream-forward from-stream to-stream))
+                   :on-backward (lambda ()
+                                  (log-print "BACKWARD# ~a <= ~a" (peer from) (peer to))
+                                  (stream-forward to-stream from-stream))))))))
     (if (not thread)
         (main)
       (sb-thread:make-thread #'main))))
